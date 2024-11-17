@@ -51,7 +51,6 @@ The following models were tested:
 | Decision Tree          | 0.872    | 0.837     | 0.885  | 0.860    | 0.918 |
 
 **Final Model**: The **SVM Linear Kernel** was chosen as the best model for its balance of high F1 Score (0.857) and AUC (0.944).
-
 ---
 
 ## **Visualizations**
