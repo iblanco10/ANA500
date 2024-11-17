@@ -1,0 +1,457 @@
+# Import libraries
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier, plot_tree
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import roc_curve, roc_auc_score
+
+
+file_path = '/Users/iranblanco/Desktop/ANA 500/MicroProjects/gym_members_exercise_tracking.csv'
+gym_data = pd.read_csv(file_path)
+gym_data.head()
+
+# Number of rows and columns 
+dataset_size = gym_data.shape
+print(f"The dataset contains {dataset_size[0]} rows and {dataset_size[1]} columns.")
+
+# Names of each column 
+column_names = gym_data.columns
+print("Column names:", column_names)
+
+# Remove spaces and units from column names
+gym_data.columns = [
+    'Age', 'Gender', 'Weight', 'Height', 'Max_BPM', 'Avg_BPM', 'Resting_BPM', 
+    'Session_Duration', 'Calories_Burned', 'Workout_Type', 'Fat_Percentage', 
+    'Water_Intake', 'Workout_Frequency', 'Experience_Level', 'BMI'
+]
+gym_data.columns
+
+# Scaler
+scaler = MinMaxScaler()
+
+# Columns selected
+gym_data[['Weight_Scaled', 'Height_Scaled']] = scaler.fit_transform(gym_data[['Weight', 'Height']])
+print(gym_data[['Weight', 'Height', 'Weight_Scaled', 'Height_Scaled']].head())
+
+# Missing values
+missing_values = gym_data.isnull().sum()
+print("Missing values per column:\n", missing_values)
+
+# Duplicate rows
+duplicate_rows = gym_data.duplicated().sum()
+print(f"Number of duplicate rows: {duplicate_rows}")
+
+# Data types
+gym_data.info()
+
+gym_data.describe()
+
+# Statistics for key variables
+summary_stats = gym_data[['Calories_Burned', 'Session_Duration', 'Weight_Scaled', 'Age', 'Fat_Percentage']].describe()
+
+summary_stats
+
+# Gender distribution
+gender_counts = gym_data['Gender'].value_counts(normalize=True) * 100
+gender_counts = gender_counts.round(2)
+print(gender_counts)
+
+# Preserve original dataset, do not overwrite
+gym_data_updated = gym_data.copy()
+
+# Encode Gender with 0 for Male and 1 for Female
+gender_mapping = {'Male': 0, 'Female': 1}
+gym_data_updated['Gender_Encoded'] = gym_data['Gender'].map(gender_mapping)
+
+# Encode Workout_Type 
+workout_type_mapping = {'Yoga': 1, 'HIIT': 2, 'Cardio': 3, 'Strength': 4}
+gym_data_updated['Workout_Type_Encoded'] = gym_data['Workout_Type'].map(workout_type_mapping)
+
+gym_data_updated.head()
+
+# Gender Visual
+plt.figure(figsize=(8, 5))
+gender_counts = gym_data_updated['Gender_Encoded'].value_counts().sort_index()
+plt.bar(gender_counts.index, gender_counts.values, color=['lightblue', 'lightcoral'])
+plt.title('Gender Distribution')
+plt.xticks([0, 1], ['Male (0)', 'Female (1)'])
+plt.xlabel('Gender (Encoded)')
+plt.ylabel('Count')
+plt.show()
+
+# Workout_Type Visual
+plt.figure(figsize=(8, 5))
+workout_counts = gym_data_updated['Workout_Type_Encoded'].value_counts().sort_index()
+plt.bar(workout_counts.index, workout_counts.values, color=['lightgreen', 'lightblue', 'lightcoral', 'lightyellow'])
+plt.title('Workout Type Distribution')
+plt.xticks([1, 2, 3, 4], ['Yoga (1)', 'HIIT (2)', 'Cardio (3)', 'Strength (4)'])
+plt.xlabel('Workout Type (Encoded)')
+plt.ylabel('Count')
+plt.show()
+
+# Identify outliers using IQR method
+def find_outliers_iqr(data, column):
+    Q1 = data[column].quantile(0.25)
+    Q3 = data[column].quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    outliers = data[(data[column] < lower_bound) | (data[column] > upper_bound)]
+    return outliers
+
+# Identify outliers for each variable
+outliers_session_duration = find_outliers_iqr(gym_data_updated, 'Session_Duration')
+outliers_calories_burned = find_outliers_iqr(gym_data_updated, 'Calories_Burned')
+outliers_weight = find_outliers_iqr(gym_data_updated, 'Weight')
+outliers_fat_percentage = find_outliers_iqr(gym_data_updated, 'Fat_Percentage')
+outliers_age = find_outliers_iqr(gym_data_updated, 'Age')
+
+print("Outliers in Session_Duration:", outliers_session_duration.shape[0])
+print("Outliers in Calories_Burned:", outliers_calories_burned.shape[0])
+print("Outliers in Weight:", outliers_weight.shape[0])
+print("Outliers in Fat_Percentage:", outliers_fat_percentage.shape[0])
+print("Outliers in Age:", outliers_age.shape[0])
+
+# Outliers in Calories_Burned and Weight
+print("Calories_Burned Outliers:\n", outliers_calories_burned)
+print("Weight Outliers:\n", outliers_weight)
+
+# Box plot for Calories_Burned
+plt.figure(figsize=(8, 6))
+plt.boxplot(gym_data_updated['Calories_Burned'])
+plt.title('Box Plot of Calories_Burned')
+plt.ylabel('Calories Burned')
+plt.show()
+
+# Box plot for Weight
+plt.figure(figsize=(8, 6))
+plt.boxplot(gym_data_updated['Weight'])
+plt.title('Box Plot of Weight')
+plt.ylabel('Weight (kg)')
+plt.show()
+
+# Median split
+calories_median = gym_data_updated['Calories_Burned'].median()
+gym_data_updated['Calorie_Burn_New'] = (gym_data_updated['Calories_Burned'] > calories_median).astype(int)
+# Plot histogram with binary split
+plt.figure(figsize=(10, 6))
+plt.hist(gym_data_updated[gym_data_updated['Calorie_Burn_New'] == 0]['Calories_Burned'], bins=15, alpha=0.5, label='Low Calorie Burn')
+plt.hist(gym_data_updated[gym_data_updated['Calorie_Burn_New'] == 1]['Calories_Burned'], bins=15, alpha=0.5, label='High Calorie Burn')
+plt.axvline(calories_median, color='red', linestyle='dashed', linewidth=1, label=f'Median ({calories_median})')
+plt.xlabel('Calories Burned')
+plt.ylabel('Frequency')
+plt.title('Calories Burned Distribution with High/Low Split')
+plt.legend()
+plt.show()
+
+# Calories Burned Visual
+plt.figure(figsize=(8, 5))
+plt.hist(gym_data['Calories_Burned'], bins=20, color='skyblue', edgecolor='black')
+plt.title('Distribution of Calories Burned')
+plt.xlabel('Calories Burned')
+plt.ylabel('Frequency')
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.show()
+
+# Session Duration Visual
+plt.figure(figsize=(8, 5))
+plt.hist(gym_data['Session_Duration'], bins=20, color='lightgreen', edgecolor='black')
+plt.title('Distribution of Session Duration')
+plt.xlabel('Session Duration (hours)')
+plt.ylabel('Frequency')
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.show()
+
+# Weight Visual
+plt.figure(figsize=(8, 5))
+plt.hist(gym_data['Weight'], bins=20, color='salmon', edgecolor='black')
+plt.title('Distribution of Weight')
+plt.xlabel('Weight (kg)')
+plt.ylabel('Frequency')
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.show()
+
+# Weight_Scaled Visual
+plt.figure(figsize=(8, 5))
+plt.hist(gym_data_updated['Weight_Scaled'], bins=20, color='salmon', edgecolor='black')
+plt.title('Distribution of Weight (Scaled)')
+plt.xlabel('Weight (Scaled)')
+plt.ylabel('Frequency')
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.show()
+
+# Fat Percentage Visual
+plt.figure(figsize=(8, 5))
+plt.hist(gym_data['Fat_Percentage'], bins=20, color='orange', edgecolor='black')
+plt.title('Distribution of Fat Percentage')
+plt.xlabel('Fat Percentage (%)')
+plt.ylabel('Frequency')
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.show()
+
+# Correlation matrix Columns
+correlation_data = gym_data_updated[['Calorie_Burn_New', 'Session_Duration', 'Weight_Scaled', 'Fat_Percentage', 'Age', 'Gender_Encoded']]
+
+# Correlation matrix plot
+plt.figure(figsize=(10, 8))
+correlation_matrix = correlation_data.corr()
+sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', square=True, fmt=".2f")
+plt.title('Correlation Matrix of Key Variables')
+plt.show()
+
+# Distribution of Workout_Type_Encoded
+plt.figure(figsize=(8, 5))
+sns.countplot(data=gym_data_updated, x='Workout_Type_Encoded', hue='Workout_Type_Encoded', dodge=False, legend=False)
+plt.title('Distribution of Workout Types (Encoded)')
+plt.xlabel('Workout Type (Encoded)')
+plt.ylabel('Frequency')
+plt.show()
+
+# Distribution of Workout_Type_Encoded vs Calories Burned
+plt.figure(figsize=(8, 5))
+sns.boxplot(data=gym_data_updated, x='Workout_Type_Encoded', y='Calories_Burned')
+plt.title('Calories Burned by Workout Type')
+plt.xlabel('Workout Type (Encoded)')
+plt.ylabel('Calories Burned')
+plt.show()
+#---
+plt.figure(figsize=(8, 5))
+sns.countplot(data=gym_data_updated, x='Workout_Type_Encoded', hue='Calorie_Burn_New')
+plt.title('High vs. Low Calorie Burn by Workout Type')
+plt.xlabel('Workout Type (Encoded)')
+plt.ylabel('Count')
+plt.legend(title='Calorie Burn (0 = Low, 1 = High)')
+plt.show()
+
+# Distribution of Workout_Type_Encoded vs Session Duration
+plt.figure(figsize=(8, 5))
+sns.boxplot(data=gym_data_updated, x='Workout_Type_Encoded', y='Session_Duration')
+plt.title('Session Duration by Workout Type')
+plt.xlabel('Workout Type (Encoded)')
+plt.ylabel('Session Duration (hours)')
+plt.show()
+
+# Distribution of Workout_Type_Encoded vs Fat Percentage
+plt.figure(figsize=(8, 5))
+sns.boxplot(data=gym_data_updated, x='Workout_Type_Encoded', y='Fat_Percentage')
+plt.title('Fat Percentage by Workout Type')
+plt.xlabel('Workout Type (Encoded)')
+plt.ylabel('Fat Percentage')
+plt.show()
+
+# Distribution of Workout_Type_Encoded vs Age
+plt.figure(figsize=(8, 5))
+sns.boxplot(data=gym_data_updated, x='Workout_Type_Encoded', y='Age')
+plt.title('Age Distribution by Workout Type')
+plt.xlabel('Workout Type (Encoded)')
+plt.ylabel('Age')
+plt.show()
+
+# Distribution of Workout_Type_Encoded vs Gender
+plt.figure(figsize=(8, 5))
+sns.countplot(data=gym_data_updated, x='Workout_Type_Encoded', hue='Gender_Encoded')
+plt.title('Workout Type by Gender')
+plt.xlabel('Workout Type (Encoded)')
+plt.ylabel('Count')
+plt.legend(title='Gender (0 = Male, 1 = Female)')
+plt.show()
+
+# Distribution of Workout_Type_Encoded vs Weight
+plt.figure(figsize=(8, 5))
+sns.boxplot(data=gym_data_updated, x='Workout_Type_Encoded', y='Weight_Scaled')
+plt.title('Scaled Weight Distribution by Workout Type')
+plt.xlabel('Workout Type (Encoded)')
+plt.ylabel('Weight (Scaled)')
+plt.show()
+
+# Features and target 
+X = gym_data_updated[['Workout_Type_Encoded', 'Session_Duration', 'Weight_Scaled', 'Gender_Encoded', 'Age', 'Fat_Percentage']]
+y = gym_data_updated['Calorie_Burn_New']
+
+# 80/20 Train-Test Split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=1)
+
+# Logistic Regression
+model_logistic = LogisticRegression(random_state=1)
+model_logistic.fit(X_train, y_train)
+
+y_pred_logistic = model_logistic.predict(X_test)
+
+# Confusion Matrix 
+cm_logistic = confusion_matrix(y_test, y_pred_logistic)
+accuracy_logistic = accuracy_score(y_test, y_pred_logistic)
+precision_logistic = precision_score(y_test, y_pred_logistic)
+recall_logistic = recall_score(y_test, y_pred_logistic)
+f1_logistic = f1_score(y_test, y_pred_logistic)
+
+print("Logistic Regression Confusion Matrix:\n", cm_logistic)
+print(f"Accuracy: {accuracy_logistic}, Precision: {precision_logistic}, Recall: {recall_logistic}, F1 Score: {f1_logistic}")
+
+# ROC-AUC 
+y_pred_probs_logistic = model_logistic.predict_proba(X_test)[:, 1]  # Probabilities for the positive class
+fpr_logistic, tpr_logistic, _ = roc_curve(y_test, y_pred_probs_logistic)
+auc_logistic = roc_auc_score(y_test, y_pred_probs_logistic)
+
+print(f"Logistic Regression AUC: {auc_logistic:.2f}")
+
+# Logistic Regression Coefficients
+feature_names = X.columns
+coef = model_logistic.coef_[0]
+print("\nLogistic Regression Coefficients:")
+for feature, weight in zip(feature_names, coef):
+    print(f"{feature}: {weight:.3f}")
+
+# SVM with Linear Kernel
+model_svm_linear = SVC(kernel='linear', random_state=1)
+model_svm_linear.fit(X_train, y_train)
+
+y_pred_svm_linear = model_svm_linear.predict(X_test)
+
+# Confusion Matrix
+cm_svm_linear = confusion_matrix(y_test, y_pred_svm_linear)
+accuracy_svm_linear = accuracy_score(y_test, y_pred_svm_linear)
+precision_svm_linear = precision_score(y_test, y_pred_svm_linear)
+recall_svm_linear = recall_score(y_test, y_pred_svm_linear)
+f1_svm_linear = f1_score(y_test, y_pred_svm_linear)
+
+print("SVM Linear Kernel Confusion Matrix:\n", cm_svm_linear)
+print(f"Accuracy: {accuracy_svm_linear}, Precision: {precision_svm_linear}, Recall: {recall_svm_linear}, F1 Score: {f1_svm_linear}")
+
+# ROC-AUC 
+y_pred_probs_svm_linear = model_svm_linear.decision_function(X_test)
+fpr_svm_linear, tpr_svm_linear, _ = roc_curve(y_test, y_pred_probs_svm_linear)
+auc_svm_linear = roc_auc_score(y_test, y_pred_probs_svm_linear)
+
+print(f"SVM Linear Kernel AUC: {auc_svm_linear:.2f}")
+
+# SVM with RBF Kernel
+model_svm_rbf = SVC(kernel='rbf', random_state=1)
+model_svm_rbf.fit(X_train, y_train)
+# Predictions
+y_pred_svm_rbf = model_svm_rbf.predict(X_test)
+
+# Confusion Matrix 
+cm_svm_rbf = confusion_matrix(y_test, y_pred_svm_rbf)
+accuracy_svm_rbf = accuracy_score(y_test, y_pred_svm_rbf)
+precision_svm_rbf = precision_score(y_test, y_pred_svm_rbf)
+recall_svm_rbf = recall_score(y_test, y_pred_svm_rbf)
+f1_svm_rbf = f1_score(y_test, y_pred_svm_rbf)
+
+print("SVM RBF Kernel Confusion Matrix:\n", cm_svm_rbf)
+print(f"Accuracy: {accuracy_svm_rbf}, Precision: {precision_svm_rbf}, Recall: {recall_svm_rbf}, F1 Score: {f1_svm_rbf}")
+
+# ROC-AUC
+y_pred_probs_svm_rbf = model_svm_rbf.decision_function(X_test)
+fpr_svm_rbf, tpr_svm_rbf, _ = roc_curve(y_test, y_pred_probs_svm_rbf)
+auc_svm_rbf = roc_auc_score(y_test, y_pred_probs_svm_rbf)
+
+print(f"SVM RBF Kernel AUC: {auc_svm_rbf:.2f}")
+
+# Decision Tree Model 
+model_tree = DecisionTreeClassifier(random_state=1, max_depth=3)  
+model_tree.fit(X_train, y_train)
+
+y_pred_tree = model_tree.predict(X_test)
+
+# Confusion Matrix 
+cm_tree = confusion_matrix(y_test, y_pred_tree)
+accuracy_tree = accuracy_score(y_test, y_pred_tree)
+precision_tree = precision_score(y_test, y_pred_tree)
+recall_tree = recall_score(y_test, y_pred_tree)
+f1_tree = f1_score(y_test, y_pred_tree)
+
+print("Decision Tree Confusion Matrix:\n", cm_tree)
+print(f"Accuracy: {accuracy_tree}, Precision: {precision_tree}, Recall: {recall_tree}, F1 Score: {f1_tree}")
+
+# ROC-AUC
+y_pred_probs_tree = model_tree.predict_proba(X_test)[:, 1]
+fpr_tree, tpr_tree, _ = roc_curve(y_test, y_pred_probs_tree)
+auc_tree = roc_auc_score(y_test, y_pred_probs_tree)
+
+print(f"Decision Tree AUC: {auc_tree:.2f}")
+
+# Decision Tree Visual
+plt.figure(figsize=(20, 10))  # Smaller figure size for readability
+plot_tree(model_tree, feature_names=X.columns, class_names=['Low Burn', 'High Burn'], filled=True, rounded=True, fontsize=12)
+plt.show()
+
+# Summary Table of Results
+results = pd.DataFrame({
+    'Model': ['Logistic Regression', 'SVM Linear Kernel', 'SVM RBF Kernel', 'Decision Tree'],
+    'Accuracy': [accuracy_logistic, accuracy_svm_linear, accuracy_svm_rbf, accuracy_tree],
+    'Precision': [precision_logistic, precision_svm_linear, precision_svm_rbf, precision_tree],
+    'Recall': [recall_logistic, recall_svm_linear, recall_svm_rbf, recall_tree],
+    'F1 Score': [f1_logistic, f1_svm_linear, f1_svm_rbf, f1_tree],
+    'AUC': [auc_logistic, auc_svm_linear, auc_svm_rbf, auc_tree]  # Add AUC values
+})
+
+print(results)
+
+#Cross-Validation
+# Logistic Regression Cross-Validation
+logistic_cv_scores = cross_val_score(model_logistic, X, y, cv=5, scoring='f1')
+print("\nLogistic Regression Cross-Validation F1 Score:", logistic_cv_scores.mean())
+
+# SVM Linear Kernel Cross-Validation
+svm_linear_cv_scores = cross_val_score(model_svm_linear, X, y, cv=5, scoring='f1')
+print("SVM Linear Kernel Cross-Validation F1 Score:", svm_linear_cv_scores.mean())
+
+#Confusion Matrix 
+# Logistic Regression Confusion Matrix
+plt.figure(figsize=(6, 5))
+sns.heatmap(cm_logistic, annot=True, fmt="d", cmap="Blues", cbar=False)
+plt.title("Logistic Regression Confusion Matrix")
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.show()
+
+# SVM Linear Kernel Confusion Matrix
+plt.figure(figsize=(6, 5))
+sns.heatmap(cm_svm_linear, annot=True, fmt="d", cmap="Blues", cbar=False)
+plt.title("SVM Linear Kernel Confusion Matrix")
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.show()
+
+# Cross-validation F1 scores 
+models = ['Logistic Regression', 'SVM Linear Kernel', 'SVM RBF Kernel', 'Decision Tree']
+f1_scores = [0.84, 0.86, 0.67, 0.86] 
+
+# Bar chart
+plt.figure(figsize=(10, 6))
+bars = plt.bar(models, f1_scores, color=['blue', 'orange', 'red', 'green'], edgecolor='black')
+
+plt.title('Cross-Validation F1 Scores', fontsize=16, weight='bold')
+plt.xlabel('Model', fontsize=14)
+plt.ylabel('F1 Score', fontsize=14)
+plt.ylim(0.0, 0.9)  # Adjust y-axis limits for better visualization
+plt.xticks(fontsize=12)
+plt.yticks(fontsize=12)
+
+# Bar Annotation
+for bar in bars:
+    plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.005,
+             f'{bar.get_height():.2f}', ha='center', fontsize=12, color='black')
+plt.tight_layout()
+plt.show()
+
+	
+# Combined ROC Curve Plot
+plt.figure(figsize=(10, 8))
+plt.plot(fpr_logistic, tpr_logistic, label=f'Logistic Regression (AUC = {auc_logistic:.2f})', color='blue')
+plt.plot(fpr_svm_linear, tpr_svm_linear, label=f'SVM Linear Kernel (AUC = {auc_svm_linear:.2f})', color='orange')
+plt.plot(fpr_svm_rbf, tpr_svm_rbf, label=f'SVM RBF Kernel (AUC = {auc_svm_rbf:.2f})', color='red')
+plt.plot(fpr_tree, tpr_tree, label=f'Decision Tree (AUC = {auc_tree:.2f})', color='green')
+plt.plot([0, 1], [0, 1], color='gray', linestyle='--', label='Random Classifier')
+plt.title('ROC Curves for All Models', fontsize=16)
+plt.xlabel('False Positive Rate', fontsize=14)
+plt.ylabel('True Positive Rate (Recall)', fontsize=14)
+plt.legend(fontsize=12)
+plt.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
